@@ -15,17 +15,25 @@ main = do
 redo :: String -> IO ()
 redo target = do
   let tmp = target ++"---redoing"
-  path <- redoPath target    
-  (_, _, _, ph) <- createProcess $ shell $ "sh " ++ path  ++ " - - " ++ tmp --  ++ " > " ++ tmp 
-  exit  <- waitForProcess ph
-  case exit of
-    ExitSuccess -> do renameFile tmp target
-    ExitFailure code -> do hPutStrLn stderr $ "Redo script exited with non-zero exit code: " ++ show code
-                           removeFile tmp
+  maybePath <- redoPath target
+  case maybePath of
+    Nothing -> error "No .do file found for target"
+    Just path -> do
+      (_, _, _, ph) <- createProcess $ shell $ "sh " ++ path  ++ " - - " ++ tmp --  ++ " > " ++ tmp 
+      exit  <- waitForProcess ph
+      case exit of
+        ExitSuccess -> do renameFile tmp target
+        ExitFailure code -> do hPutStrLn stderr $ "Redo script exited with non-zero exit code: " ++ show code
+                               removeFile tmp
 
-redoPath :: FilePath -> IO FilePath
+redoPath :: FilePath -> IO (Maybe FilePath)
 redoPath target = do
   existingCandidates <- filterM doesFileExist candidates
-  return $ head existingCandidates 
+  return $ safeHead existingCandidates 
   where
       candidates = [target++".do"] ++ if hasExtension target then [replaceBaseName target "default" ++ ".do"] else  []
+
+
+safeHead :: [a] -> Maybe a
+safeHead [] = Nothing
+safeHead (x:_) = Just x
