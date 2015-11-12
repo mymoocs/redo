@@ -1,39 +1,43 @@
 {-# OPTIONS_GHC -fforce-recomp #-}
-import Control.Monad (filterM)
+import Control.Monad (filterM, liftM)
+import Data.Maybe (listToMaybe)
 import System.Directory (copyFile,renameFile, removeFile, doesFileExist)
 import System.Environment (getArgs)
 import System.Exit (ExitCode(..))
-import System.FilePath (hasExtension, replaceBaseName)
+import System.FilePath (hasExtension, replaceBaseName, takeBaseName)
 import System.IO (hPutStrLn, stderr)
 import System.Process (createProcess, waitForProcess, shell)
 
 main :: IO ()
-main = do
-  args <- getArgs
-  mapM_ redo args
+main = mapM_ redo =<< getArgs
+  -- getArgs >>= mapM_ redo
+  -- do getArgs >>= \args -> mapM_ redo args
 
 redo :: String -> IO ()
 redo target = do
-  let tmp = target ++"---redoing"
-  maybePath <- redoPath target
-  case maybePath of
-    Nothing -> error "No .do file found for target"
-    Just path -> do
-      (_, _, _, ph) <- createProcess $ shell $ "sh " ++ path  ++ " - - " ++ tmp --  ++ " > " ++ tmp 
+  
+  maybe printMissing redo' =<<redoPath target
+  where
+    tmp = target ++"---redoing"
+    printMissing = error "No .do file found for target"
+    -- cmd path = "sh " ++ path  ++ " 0 " ++ takeBaseName target ++ " " ++ tmp  ++ " > " ++ tmp
+    cmd path = unwords ["sh", path, "0",takeBaseName target, tmp, ">",tmp]
+    redo' :: FilePath -> IO ()
+    redo' path = do
+      (_, _, _, ph) <- createProcess $ shell $ cmd path
       exit  <- waitForProcess ph
       case exit of
         ExitSuccess -> do renameFile tmp target
         ExitFailure code -> do hPutStrLn stderr $ "Redo script exited with non-zero exit code: " ++ show code
                                removeFile tmp
 
+
 redoPath :: FilePath -> IO (Maybe FilePath)
-redoPath target = do
-  existingCandidates <- filterM doesFileExist candidates
-  return $ safeHead existingCandidates 
+redoPath target =  listToMaybe  `liftM` filterM doesFileExist candidates
+  -- liftM safeHead $ filterM doesFileExist candidates
+  -- existingCandidates <- filterM doesFileExist candidates
+  -- return $ safeHead existingCandidates 
   where
-      candidates = [target++".do"] ++ if hasExtension target then [replaceBaseName target "default" ++ ".do"] else  []
-
-
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x:_) = Just x
+      candidates = [target++".do"] ++ if hasExtension target
+                                      then [replaceBaseName target "default" ++ ".do"]
+                                      else  []
