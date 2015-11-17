@@ -2,3 +2,6 @@
 *.o
 /redo
 .redo
+dist
+/.cabal-sandbox/
+/.stack-work/
