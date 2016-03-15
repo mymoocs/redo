@@ -9,7 +9,7 @@ import Data.Maybe (listToMaybe)
 import Debug.Trace(trace)
 import GHC.IO.Exception (IOErrorType(..)) 
 import System.Directory (renameFile, removeFile, doesFileExist, getDirectoryContents, removeDirectoryRecursive, createDirectoryIfMissing)
-import System.Environment (getArgs, getEnvironment)
+import System.Environment (getArgs, getEnvironment, getProgName, lookupEnv)
 import System.Exit (ExitCode(..))
 import System.FilePath (hasExtension, replaceBaseName, takeBaseName, (</>))
 import System.IO (hPutStrLn, stderr, hGetLine, withFile, IOMode(..))
@@ -20,15 +20,25 @@ import System.Process (createProcess, waitForProcess, shell, CreateProcess(..))
 trace' :: Show a => a -> a
 trace' arg = trace (show arg) arg
 
+metaDir = ".redo"
+
 
 main :: IO ()
-main = mapM_ redo =<< getArgs
-
+main = do
+   mapM_ redo =<< getArgs
+   progName <- getProgName
+   redoTarget' <- lookupEnv "REDO_TARGET"
+   case (progName, redoTarget') of
+        ("redo-ifchange", Just redoTarget) -> mapM_ (writeMD5 redoTarget) =<< getArgs
+        ("redo-ifchange", Nothing)         -> error "Missing REDO_TARGET environment"
+        _ -> return ()
+   where
+     writeMD5 redoTarget dep  = writeFile (metaDir </> redoTarget </> dep) =<< md5' dep 
 
 redo :: String -> IO ()
 redo target = do
   upToDate' <- upToDate metaDepsDir
-  unless upToDate' $ maybe printMissing redo' =<< redoPath target
+  unless upToDate' $ maybe missingDo redo' =<< redoPath target
   where
     redo' :: FilePath -> IO ()
     redo' path = do
@@ -48,12 +58,13 @@ redo target = do
   ------------------------------------------
     tmp :: FilePath
     tmp = target ++"---redoing"
-    printMissing :: IO ()
-    printMissing = error "No .do file found for target"
+    missingDo = do
+      exists <- doesFileExist target
+      unless exists $ error $"No .do file found for target '" ++ target ++ "'"
     cmd :: FilePath -> String
-    cmd path = trace' $ unwords ["sh", path, "0",takeBaseName target, tmp, ">",tmp]
+    cmd path = trace' $ unwords ["sh -x", path, "0",takeBaseName target, tmp, ">",tmp]
     metaDepsDir :: FilePath
-    metaDepsDir = ".redo" </> target
+    metaDepsDir = metaDir  </> target
                                
 
 
